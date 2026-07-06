@@ -1,6 +1,6 @@
 # KM Review Skill
 
-**Trigger:** `/km-review [<file-path> | --latest] [--fix]`
+**Trigger:** `/km-review [<file-path> | --latest] [--fix] [--score-only] [--ai-only]`
 
 **Purpose:** Audit a Markdown file against SAP KM standards. Optionally apply safe fixes.
 
@@ -14,12 +14,14 @@ Extract from `args`:
 - `file_path` — path to a `.md` file (relative to repo root or absolute). Required unless `--latest` is passed.
 - `--latest` flag — if present, derive `file_path` from the most-recently changed `.md` file in git.
 - `--fix` flag — if present, apply safe fixes after review.
+- `--score-only` flag — if present, display only the quality score and exit.
+- `--ai-only` flag — if present, skip the docs-linter step and run AI review only.
 
 **If `--latest`:**
 ```bash
 git diff --name-only HEAD~1 -- '*.md'
 ```
-If multiple files changed, review each in order (most recently changed first). If no `.md` files changed in `HEAD~1`, try `HEAD` (uncommitted staged changes):
+If multiple files changed, review each in order (most recently changed first). If no `.md` files changed in `HEAD~1`, try staged changes:
 ```bash
 git diff --cached --name-only -- '*.md'
 ```
@@ -27,25 +29,35 @@ If still nothing, tell user: `No changed .md files found in latest commit or sta
 
 **If neither file path nor `--latest`:** tell user `Usage: /km-review <file-path> [--fix]` or `/km-review --latest [--fix]` and stop.
 
-### 2. Run Markdown Lint
+### 2. Validate the File
+
+- Verify the file exists.
+- Confirm it has a `.md` extension.
+- Read the full file content.
+
+### 3. Run Markdown Lint
 
 ```bash
 ./scripts/lint-markdown.sh <file-path>
 ```
 
-Capture output. If the script does not exist or fails, note it and continue to AI review.
+Capture output. If the script does not exist or fails, note it and continue to the next step.
 
-### 3. Read the Target File
+### 4. Optional: Run docs-linter (skip if `--ai-only`)
 
-Read the full contents of `<file-path>`.
+```bash
+node docs-linter/src/cli.js validate <file-path> --json
+```
 
-### 4. Load KM Rules
+If the command succeeds, collect the JSON findings for merging with the AI review. If it fails or the tool is not present, continue without it.
+
+### 5. Load KM Rules
 
 Read both rule sources in full:
 - `prompts/km-doc-review.md` — full AI review prompt and output schema
 - `docs/km-style-guide.md` — canonical style guide
 
-### 5. AI Review
+### 6. AI Review
 
 Apply all rules from both files to the file contents. Produce a structured review with:
 
@@ -54,21 +66,30 @@ Apply all rules from both files to the file contents. Produce a structured revie
 - **duplication_findings** — repeated content with consolidation recommendations
 - **clarity_readability_review** — active voice, tense, word replacements (will→present, might→may, etc.)
 - **consistency_validation** — SAP terminology, casing, inline code rules
-- **quality_score** — overall 1–10 with breakdown and rationale
+- **quality_score** — overall 1–10 with breakdown (structure, clarity, maintainability, developer usability) and rationale
 
-For each finding include: severity, location (section + approximate line), what's wrong, suggested fix.
+For each finding include: severity, location (section + approximate line), what's wrong, suggested fix, and whether it is safe to auto-fix.
 
-### 6. Output Review
+If docs-linter findings are available, merge and deduplicate them with AI findings — do not report the same issue twice.
 
-Print the structured review clearly. Group by category. Lead with critical and major findings.
+### 7. Output Review
+
+**If `--score-only`:** display only the quality score and breakdown, then stop.
+
+Otherwise, print the structured review clearly. Group by category. Lead with critical and major findings.
 
 End with:
-```
+```text
 Quality score: X/10
 Critical: N  Major: N  Minor: N  Info: N
 ```
 
-### 7. If `--fix` Flag
+If `--fix` was not passed, append:
+```text
+To apply safe fixes, run: /km-review <file-path> --fix
+```
+
+### 8. If `--fix` Flag
 
 After printing the review, apply **safe** fixes only — changes that cannot alter technical meaning:
 
@@ -86,3 +107,11 @@ After printing the review, apply **safe** fixes only — changes that cannot alt
 Do **not** auto-fix: rewritten sentences, link text changes, structural reordering, content additions, or anything requiring judgment about technical meaning.
 
 Write the fixed file back. Report what was changed.
+
+## Error Handling
+
+- File not found: `Error: File not found: <file-path>`
+- Not a markdown file: `Error: Only markdown files (.md) are supported`
+- No changed files (--latest): `No changed .md files found in latest commit or staged changes.`
+- docs-linter missing or failing: continue with AI-only review, note in output
+- Auto-fix fails: `Error: Failed to apply fixes. File unchanged. Findings available above.`
