@@ -143,7 +143,6 @@ For more information, see [Importing an Application without Source Control](http
 
 Once you have downloaded the application source artefacts, follow one of the following migration options.
 
-
 1. [Migrate Neo application for a single SAP Fiori UI application](Option1.md)
 2. [Migrate Neo application supporting multiple SAP Fiori UI applications](Option2.md)
 
@@ -163,9 +162,62 @@ You must choose "Add Project" from the migration tab if your extension project i
 
 For more information about supported features, see [Supported Migration Features](https://help.sap.com/docs/SAP_FIORI_tools/17d50220bcd848aa854c9c182d65b699/f540ae1961914bf783cd266f3c0d8530.html?locale=en-US).
 
+## Upgrading `@ui5/cli` to v4
+
+After migrating your application, update `@ui5/cli` to v4 to benefit from the latest toolchain improvements. For more information, see [Migrate to v4](https://ui5.github.io/cli/v4/updates/migrate-v4/).
+
+### Prerequisites
+
+- Node.js v20.11.0 or higher, or v22.0.0 or higher. Node.js v21 is not supported.
+- `npm` v8 or higher.
+
+### Update `@ui5/cli`
+
+Update `@ui5/cli` in your `package.json` file to v4:
+
+```bash
+npm install --save-dev @ui5/cli@^4
+```
+
+### Breaking Changes
+
+If your project uses Specification Version 2.x or 3.x, no changes are required — projects using these versions are fully compatible with `@ui5/cli` v4.
+
+If your project uses Specification Version 4.0 or higher, review the following breaking changes.
+
+**Remove `usePredefineCalls`**
+
+The `usePredefineCalls` option has been removed. Bundling now always uses `sap.ui.predefine` calls. Remove this property from your `ui5.yaml` file if present:
+
+```yaml
+builder:
+    bundles:
+        - bundleDefinition:
+            sections:
+                - mode: require
+                  resolve: true
+                  sort: true
+```
+
+**Async require sections**
+
+The `async` option for `require` bundle sections now defaults to `true`. This changes the loading behaviour from `sap.ui.requireSync` to `sap.ui.require`. If your application requires synchronous loading, set `async: false` explicitly:
+
+```yaml
+builder:
+    bundles:
+        - bundleDefinition:
+            sections:
+                - mode: require
+                  async: false
+```
+
+For more information, see [Migrate to v4](https://ui5.github.io/cli/v4/updates/migrate-v4/).
+
 ## Troubleshooting
 
 ### SAP Fiori Migration Tool Does Not Detect Your Application
+
 SAP Fiori Migration tool does not detect your application, ensure your exported project contains a `webapp` folder. If this folder is missing, generate a `webapp` folder inside the root of your project, move all your UI code but exclude application specific code, for example `neo-app.json`, `pom.xml`, and `.che`.  
 
 If you are also missing a `manifest.json` file inside of your `webapp` folder, see [UI5 Documentation on Creating a Descriptor File](https://sapui5.hana.ondemand.com/sdk/#/topic/3a9babace121497abea8f0ea66e156d9.html).
@@ -464,6 +516,64 @@ There are additional changes that allow you to use the `manifest.json` file to f
 If you still face issues, open a support incident with SAP. When doing so, provide a full network trace (`.har` file) with all the requests in the scenario after it was reproduced.
 
 For more information about how to extract the trace, see [How to capture an HTTP trace using Google Chrome or MS Edge (Chromium)](https://launchpad.support.sap.com/#/notes/1990706).
+
+### Application Fails to Load in SAP Build Work Zone Due to Outdated `minUI5Version`
+
+After migrating your application, the `manifest.json` file contains an outdated `"minUI5Version"` value, for example:
+
+```json
+"sap.ui5": {
+    "dependencies": {
+        "minUI5Version": "1.84.7"
+    }
+}
+```
+
+The application runs correctly in local preview but fails to load when deployed to SAP Build Work Zone (formerly SAP Fiori Launchpad). This is because your local preview fetches the SAPUI5 version configured in your `ui5.yaml` file, whereas SAP Build Work Zone runs its own SAPUI5 version. When the version running in SAP Build Work Zone is lower than the `minUI5Version` declared in your `manifest.json` file, the framework rejects the component and the application fails to load.
+
+#### Replicating the Issue Locally
+
+To identify the SAPUI5 version your SAP Build Work Zone instance is running:
+
+1. Open your deployed application in Google Chrome.
+2. Open Developer Tools by pressing `F12`.
+3. Select the **Console** tab.
+4. Enter the following and press `Enter`:
+
+```text
+sap.ui.version
+```
+
+The version returned is the SAPUI5 version running in SAP Build Work Zone. Compare this against the `"minUI5Version"` declared in your `manifest.json` file. If the SAP Build Work Zone version is lower, the application does not load.
+
+#### Solution
+
+Update the `"minUI5Version"` in your `manifest.json` file to a version that is equal to or lower than the SAPUI5 version running in SAP Build Work Zone. You must also align the `_version` property at the root of the `manifest.json` file to the manifest schema version that corresponds to your target SAPUI5 version.
+
+To identify supported and maintained SAPUI5 versions and their corresponding manifest schema versions, see the following resources:
+
+- [SAPUI5 Versions Maintenance Status](https://ui5.sap.com/versionoverview.html)
+- [UI5 Manifest Version Mapping](https://github.com/UI5/manifest/blob/main/mapping.json)
+
+The manifest version mapping defines which manifest `_version` corresponds to each SAPUI5 version. For example, SAPUI5 version `1.140` maps to manifest `_version` `1.78.0`.
+
+Update your `manifest.json` file as follows. Ensure both `_version` and `minUI5Version` are aligned:
+
+```json
+{
+    "_version": "1.78.0",
+    "sap.app": {
+        ...
+    },
+    "sap.ui5": {
+        "dependencies": {
+            "minUI5Version": "1.140.0"
+        }
+    }
+}
+```
+
+Choose a version that is within the maintenance window and compatible with the SAPUI5 version deployed to your SAP Build Work Zone instance.
 
 ## License
 
